@@ -69,3 +69,5 @@ release:
 test:
 	go test -v -cover ./pkg/... -coverprofile=cov1.out
 	sudo JFS_GC_SKIPPEDTIME=1 `which go` test -v -cover ./cmd/... -coverprofile=cov2.out -coverpkg=./pkg/...,./cmd/...
+
+include Makefile.kangaroo

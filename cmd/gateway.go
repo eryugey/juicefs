@@ -174,9 +174,9 @@ func (g *GateWay) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, er
 		conf,
 		&jfsgateway.Config{
 			MultiBucket: c.Bool("multi-buckets"),
-			KeepEtag: c.Bool("keep-etag"),
-			Mode: uint16(0666 &^ umask),
-			DirMode: uint16(0777 &^ umask),
+			KeepEtag:    c.Bool("keep-etag"),
+			Mode:        uint16(0666 &^ umask),
+			DirMode:     uint16(0777 &^ umask),
 		},
 	)
 }
@@ -203,7 +203,7 @@ func initForSvc(c *cli.Context, mp string, metaUrl string) (*vfs.Config, *fs.Fil
 	logger.Infof("Data use %s", blob)
 
 	chunkConf := getChunkConf(c, format)
-	store := chunk.NewCachedStore(blob, *chunkConf, registerer)
+	store := chunk.NewCachedStore(blob, metaCli, *chunkConf, registerer)
 	registerMetaMsg(metaCli, store, chunkConf)
 
 	err = metaCli.NewSession()

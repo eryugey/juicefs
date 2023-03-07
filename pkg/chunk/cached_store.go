@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/juicedata/juicefs/pkg/compress"
+	"github.com/juicedata/juicefs/pkg/meta"
 	"github.com/juicedata/juicefs/pkg/object"
 	"github.com/juicedata/juicefs/pkg/utils"
 	"github.com/juju/ratelimit"
@@ -148,6 +149,20 @@ func (s *rSlice) ReadAt(ctx context.Context, page *Page, off int) (n int, err er
 	s.store.cacheMiss.Add(1)
 	s.store.cacheMissBytes.Add(float64(len(p)))
 
+	// Missed local cache, check remote cache
+	if s.store.conf.CacheGroup != "" {
+		r, err := s.store.rcache.load(key)
+		if err == nil {
+			n, err = r.ReadAt(p, int64(boff))
+			_ = r.Close()
+			if err == nil {
+				// TODO: remote cache metrics cache hit
+				return n, nil
+			}
+		}
+	}
+	// TODO: remote cache metrics cache miss
+
 	if s.store.seekable && boff > 0 && len(p) <= blockSize/4 {
 		if s.store.downLimit != nil {
 			s.store.downLimit.Wait(int64(len(p)))
@@ -232,6 +247,11 @@ func (s *rSlice) Remove() error {
 		key := s.key(i)
 		s.store.removePending(key)
 		s.store.bcache.remove(key)
+		if s.store.conf.CacheGroup != "" {
+			go func(k string) {
+				go s.store.rcache.remove(k)
+			}(key)
+		}
 	}
 
 	var err error
@@ -371,6 +391,17 @@ func (store *cachedStore) upload(key string, block *Page, s *wSlice) error {
 		buf.Acquire()
 	}
 	defer buf.Release()
+
+	// cache to remote if FillGroupCache is enabled.
+	// !sync means called from writeback path and FillGroupCache should not take effect.
+	// TODO: juicefs cloud version doc says so, but why?
+	if sync && store.conf.CacheGroup != "" && store.conf.FillGroupCache {
+		block.Acquire()
+		go func() {
+			_ = store.rcache.cache(key, block)
+			block.Release()
+		}()
+	}
 	if sync && blen < store.conf.BlockSize {
 		// block will be freed after written into disk
 		store.bcache.cache(key, block, false)
@@ -540,11 +571,18 @@ type Config struct {
 	BufferSize     int
 	Readahead      int
 	Prefetch       int
+
+	// Remote cache options
+	CacheGroup        string
+	CacheGroupSize    int64
+	FillGroupCache    bool
+	CacheGroupNoShare bool
 }
 
 type cachedStore struct {
 	storage       object.ObjectStorage
 	bcache        CacheManager
+	rcache        RemoteCache
 	fetcher       *prefetcher
 	conf          Config
 	group         *Controller
@@ -634,12 +672,19 @@ func (store *cachedStore) load(key string, page *Page, cache bool, forceCache bo
 	}
 	if cache {
 		store.bcache.cache(key, page, forceCache)
+		if store.conf.CacheGroup != "" {
+			page.Acquire()
+			go func() {
+				_ = store.rcache.cache(key, page)
+				page.Release()
+			}()
+		}
 	}
 	return nil
 }
 
 // NewCachedStore create a cached store.
-func NewCachedStore(storage object.ObjectStorage, config Config, reg prometheus.Registerer) ChunkStore {
+func NewCachedStore(storage object.ObjectStorage, meta meta.Meta, config Config, reg prometheus.Registerer) ChunkStore {
 	compressor := compress.NewCompressor(config.Compress)
 	if compressor == nil {
 		logger.Fatalf("unknown compress algorithm: %s", config.Compress)
@@ -711,6 +756,15 @@ func NewCachedStore(storage object.ObjectStorage, config Config, reg prometheus.
 		}()
 	}
 	store.regMetrics(reg)
+
+	if config.CacheGroup != "" {
+		if rcache, err := newRemoteCache(&config, meta, store.bcache); err != nil {
+			logger.Warnf("Failed to new remote cache, disabled: %s", err)
+			config.CacheGroup = ""
+		} else {
+			store.rcache = rcache
+		}
+	}
 	return store
 }
 
@@ -781,6 +835,7 @@ func (store *cachedStore) regMetrics(reg prometheus.Registerer) {
 			_, used := store.bcache.stats()
 			return float64(used)
 		}))
+	// TODO: remote cache metrics and stats
 }
 
 func (store *cachedStore) shouldCache(size int) bool {
@@ -931,6 +986,13 @@ func (store *cachedStore) FillCache(id uint64, length uint32) error {
 
 func (store *cachedStore) UsedMemory() int64 {
 	return store.bcache.usedMemory()
+}
+
+func (store *cachedStore) Stop() {
+	if store.conf.CacheGroup == "" || store.rcache == nil {
+		return
+	}
+	store.rcache.stop()
 }
 
 var _ ChunkStore = &cachedStore{}

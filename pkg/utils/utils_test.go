@@ -17,6 +17,7 @@
 package utils
 
 import (
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -109,5 +110,31 @@ func TestRemovePassword(t *testing.T) {
 	}
 	for _, tc := range testCase {
 		assertEqual(t, RemovePassword(tc.uri), tc.expected)
+	}
+}
+
+func Test_isExternalIPv4(t *testing.T) {
+	if isExternalIPv4(net.IPv4(127, 0, 0, 1)) {
+		t.Fatal("127.0.0.1 should not be external IPv4 addr")
+	}
+	if isExternalIPv4(net.IPv4(169, 254, 0, 1)) {
+		t.Fatal("169.254.0.1 should not be external IPv4 addr")
+	}
+	if !isExternalIPv4(net.IPv4(8, 254, 0, 1)) {
+		t.Fatal("8.254.0.1 should be external IPv4 addr")
+	}
+}
+
+func TestListenWithRandomPort(t *testing.T) {
+	lis, port, err := ListenWithRandomPort("127.0.0.1")
+	if err != nil {
+		t.Fatalf("ListenWithRandomPort failed: %s", err)
+	}
+	t.Logf("Listen on port %d", port)
+	lis.Close()
+
+	lis, port, err = ListenWithRandomPort("256.0.0.1")
+	if err == nil {
+		t.Fatal("ListenWithRandomPort with invalid ip should fail")
 	}
 }

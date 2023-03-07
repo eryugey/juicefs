@@ -85,7 +85,7 @@ $ juicefs mount redis://localhost /mnt/jfs --backup-meta 0`,
 	}
 }
 
-func installHandler(mp string) {
+func installHandler(mp string, cleanup func()) {
 	// Go will catch all the signals
 	signal.Ignore(syscall.SIGPIPE)
 	signalChan := make(chan os.Signal, 10)
@@ -94,6 +94,7 @@ func installHandler(mp string) {
 		for {
 			sig := <-signalChan
 			logger.Infof("Received signal %s, exiting...", sig.String())
+			cleanup()
 			go func() { _ = doUmount(mp, true) }()
 			go func() {
 				time.Sleep(time.Second * 3)
@@ -334,6 +335,11 @@ func getChunkConf(c *cli.Context, format *meta.Format) *chunk.Config {
 		CacheMode:      os.FileMode(cm),
 		CacheFullBlock: !c.Bool("cache-partial-only"),
 		AutoCreate:     true,
+
+		CacheGroup:        c.String("cache-group"),
+		CacheGroupSize:    int64(c.Int("cache-group-size")),
+		FillGroupCache:    c.Bool("fill-group-cache"),
+		CacheGroupNoShare: c.Bool("no-sharing"),
 	}
 	if chunkConf.MaxUpload <= 0 {
 		logger.Warnf("max-uploads should be greater than 0, set it to 1")
@@ -350,6 +356,20 @@ func getChunkConf(c *cli.Context, format *meta.Format) *chunk.Config {
 			ds[i] = filepath.Join(ds[i], format.UUID)
 		}
 		chunkConf.CacheDir = strings.Join(ds, string(os.PathListSeparator))
+	}
+
+	// If cache group server is enabled, disk cache and local cache share the same cache size
+	if chunkConf.CacheGroup != "" && !chunkConf.CacheGroupNoShare {
+		chunkConf.CacheSize += chunkConf.CacheGroupSize
+		if chunkConf.CacheSize == 0 {
+			logger.Warnf("cache-group requires non-zero cache-size and/or cache-group-size, disable cache-group")
+			chunkConf.CacheGroup = ""
+		}
+	}
+	// writeback disables fill-group-cache
+	if chunkConf.CacheGroup != "" && chunkConf.Writeback && chunkConf.FillGroupCache {
+		chunkConf.FillGroupCache = false
+		logger.Warnf("fill-group-cache conflicts with writeback, disabled")
 	}
 	return chunkConf
 }
@@ -431,7 +451,7 @@ func mount(c *cli.Context) error {
 	logger.Infof("Data use %s", blob)
 
 	chunkConf := getChunkConf(c, format)
-	store := chunk.NewCachedStore(blob, *chunkConf, registerer)
+	store := chunk.NewCachedStore(blob, metaCli, *chunkConf, registerer)
 	registerMetaMsg(metaCli, store, chunkConf)
 
 	vfsConf := getVfsConf(c, metaConf, format, chunkConf)
@@ -448,7 +468,7 @@ func mount(c *cli.Context) error {
 		logger.Fatalf("new session: %s", err)
 	}
 
-	installHandler(mp)
+	installHandler(mp, func() { store.Stop() })
 	v := vfs.NewVFS(vfsConf, metaCli, store, registerer, registry)
 	initBackgroundTasks(c, vfsConf, metaConf, metaCli, blob, registerer, registry)
 	mount_main(v, c)
