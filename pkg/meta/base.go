@@ -340,7 +340,7 @@ func (m *baseMeta) CloseSession() error {
 	m.sesMu.Lock()
 	m.umounting = true
 	m.sesMu.Unlock()
-	logger.Infof("close session %d: %s", m.sid, m.en.doCleanStaleSession(m.sid))
+	logger.Infof("close session %d: %v", m.sid, m.en.doCleanStaleSession(m.sid))
 	return nil
 }
 

@@ -17,7 +17,9 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
+	"math/rand"
 	"mime"
 	"net"
 	"os"
@@ -130,4 +132,68 @@ func FormatBytes(n uint64) string {
 
 func SupportANSIColor(fd uintptr) bool {
 	return isatty.IsTerminal(fd) && runtime.GOOS != "windows"
+}
+
+func isExternalIPv4(ip net.IP) bool {
+	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.To4() == nil {
+		return false
+	}
+	return true
+}
+
+func GetIpv4() (string, error) {
+	// Use ip associated with hostname if possible
+	host, err := os.Hostname()
+	if err == nil {
+		ips, _ := net.LookupIP(host)
+		for _, ip := range ips {
+			if isExternalIPv4(ip) {
+				return ip.String(), nil
+			}
+		}
+	}
+
+	// Iterate over all external IP addresses on all interfaces
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if isExternalIPv4(ip) {
+				return ip.String(), nil
+			}
+		}
+	}
+	return "", errors.New("cannot find external IPv4 address")
+}
+
+func ListenWithRandomPort(ip string) (net.Listener, int, error) {
+	i := 0
+	rand.Seed(time.Now().UnixNano())
+	for ; i < 10; i++ {
+		port := rand.Intn(65535-1024) + 1024
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, port))
+		if err == nil && listener != nil {
+			return listener, port, nil
+		}
+	}
+	return nil, -1, errors.New("no available port after 10 attemps")
 }

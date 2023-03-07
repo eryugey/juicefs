@@ -289,7 +289,7 @@ func createTestFS(t *testing.T) *FileSystem {
 		AccessLog:       "/tmp/juicefs.access.log",
 	}
 	objStore, _ := object.CreateStorage("mem", "", "", "", "")
-	store := chunk.NewCachedStore(objStore, *conf.Chunk, nil)
+	store := chunk.NewCachedStore(objStore, m, *conf.Chunk, nil)
 	jfs, err := NewFileSystem(&conf, m, store)
 	if err != nil {
 		t.Fatalf("initialize failed: %s", err)

@@ -106,7 +106,7 @@ func gc(ctx *cli.Context) error {
 		logger.Fatalf("object storage: %s", err)
 	}
 	logger.Infof("Data use %s", blob)
-	store := chunk.NewCachedStore(blob, chunkConf, nil)
+	store := chunk.NewCachedStore(blob, m, chunkConf, nil)
 
 	// Scan all chunks first and do compaction if necessary
 	progress := utils.NewProgress(false, false)
@@ -299,6 +299,7 @@ func gc(ctx *cli.Context) error {
 	close(leakedObj)
 	wg.Wait()
 	progress.Done()
+	store.Stop()
 
 	vc, _ := valid.Current()
 	lc, lb := leaked.Current()

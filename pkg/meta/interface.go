@@ -354,6 +354,13 @@ type Meta interface {
 	// getBase return the base engine.
 	getBase() *baseMeta
 	InitMetrics(registerer prometheus.Registerer)
+
+	// Get all peer addrs in the given cache group
+	GetCacheGroupPeers(cacheGroup string) ([]string, error)
+	// Add addr to the given cache group
+	AddCacheGroupPeer(cacheGroup, addr string) error
+	// Remove addr from the given cache group, no-op if addr isn't in the group
+	RemoveCacheGroupPeer(cacheGroup, addr string) error
 }
 
 type Creator func(driver, addr string, conf *Config) (Meta, error)

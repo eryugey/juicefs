@@ -472,7 +472,7 @@ func jfs_init(cname, jsonConf, user, group, superuser, supergroup *C.char) uintp
 			}
 			chunkConf.CacheDir = strings.Join(ds, string(os.PathListSeparator))
 		}
-		store := chunk.NewCachedStore(blob, chunkConf, registerer)
+		store := chunk.NewCachedStore(blob, m, chunkConf, registerer)
 		m.OnMsg(meta.DeleteSlice, func(args ...interface{}) error {
 			id := args[0].(uint64)
 			length := args[1].(uint32)

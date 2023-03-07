@@ -548,6 +548,10 @@ func (m *redisMeta) sliceRefs() string {
 	return m.prefix + "sliceRef"
 }
 
+func (m *redisMeta) cacheGroupKey(group string) string {
+	return m.prefix + "cacheGroup" + group
+}
+
 func (m *redisMeta) packEntry(_type uint8, inode Ino) []byte {
 	wb := utils.NewBuffer(9)
 	wb.Put8(_type)

@@ -164,6 +164,23 @@ func clientFlags() []cli.Flag {
 			Usage: "cache only random/small read",
 		},
 		&cli.StringFlag{
+			Name:  "cache-group",
+			Usage: "the name of group to join and provide remote cache (default: no sharing)",
+		},
+		&cli.IntFlag{
+			Name:  "cache-group-size",
+			Value: 102400,
+			Usage: "size of data in single peer of cache group (in MiB)",
+		},
+		&cli.BoolFlag{
+			Name:  "fill-group-cache",
+			Usage: "build remote cache for new written blocks",
+		},
+		&cli.BoolFlag{
+			Name:  "no-sharing",
+			Usage: "do not share cached blocks to others",
+		},
+		&cli.StringFlag{
 			Name:  "backup-meta",
 			Value: "3600",
 			Usage: "interval (in seconds) to automatically backup metadata in the object storage (0 means disable backup)",
