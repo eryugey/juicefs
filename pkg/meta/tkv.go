@@ -2740,10 +2740,18 @@ func (m *kvMeta) GetCacheGroupPeers(_group string) ([]string, error) {
 	return nil, errors.New("Function not implemented")
 }
 
-func (m *kvMeta) AddCacheGroupPeer(_group, _addr string) error {
+func (m *kvMeta) AddCacheGroupPeer(_group, _addr string, _expire time.Duration) error {
 	return errors.New("Function not implemented")
 }
 
 func (m *kvMeta) RemoveCacheGroupPeer(_group, _addr string) error {
 	return errors.New("Function not implemented")
+}
+
+func (m *kvMeta) RefreshCacheGroupPeer(_group, _addr string, _expire time.Duration) error {
+	return errors.New("Function not implemented")
+}
+
+func (m *kvMeta) GcCacheGroupPeers(_group string, _peers []string) []string {
+	return nil
 }

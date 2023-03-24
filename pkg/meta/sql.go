@@ -3206,10 +3206,18 @@ func (m *dbMeta) GetCacheGroupPeers(_group string) ([]string, error) {
 	return nil, errors.New("Function not implemented")
 }
 
-func (m *dbMeta) AddCacheGroupPeer(_group, _addr string) error {
+func (m *dbMeta) AddCacheGroupPeer(_group, _addr string, _expire time.Duration) error {
 	return errors.New("Function not implemented")
 }
 
 func (m *dbMeta) RemoveCacheGroupPeer(_group, _addr string) error {
 	return errors.New("Function not implemented")
+}
+
+func (m *dbMeta) RefreshCacheGroupPeer(_group, _addr string, _expire time.Duration) error {
+	return errors.New("Function not implemented")
+}
+
+func (m *dbMeta) GcCacheGroupPeers(_group string, _peers []string) []string {
+	return nil
 }
