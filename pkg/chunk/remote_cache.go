@@ -39,6 +39,15 @@ const (
 	// Watch cache group peers change interval
 	watchInterval = time.Second * 10
 
+	// Peer keepalive interval
+	peerKeepaliveInterval = time.Minute
+
+	// Peer GC interval
+	peerGcInterval = time.Minute * 5
+
+	// How long a peer expires in db, should be larger than keep alive interval
+	peerExpireTime = time.Minute * 5
+
 	// Download/upload buffer size
 	bufferSize = 1024 * 1024
 )
@@ -115,6 +124,9 @@ func newRemoteCache(config *Config, meta meta.Meta, bcache CacheManager) (Remote
 			_, _ = rcache.getCacheGroupPeers()
 			logger.Infof("Cache group peers %v", rcache.peers)
 		}
+
+		go rcache.keepAliveCacheGroupPeer()
+		go rcache.gcCacheGroupPeers()
 	}
 
 	// Create client after updating cache group peers, otherwise client may
@@ -345,8 +357,41 @@ func (r *remoteCache) refreshCacheGroupPeers() {
 	return
 }
 
+func (r *remoteCache) keepAliveCacheGroupPeer() {
+	group := r.config.CacheGroup
+	addr := r.localAddr
+	tick := time.NewTicker(peerKeepaliveInterval)
+	for {
+		select {
+		case <-r.stopped:
+			logger.Debug("Stop peer keepalive")
+			return
+		case <-tick.C:
+			if err := r.meta.RefreshCacheGroupPeer(group, addr, peerExpireTime); err != nil {
+				logger.Warnf("Refresh cache group %s peer %s: %v", group, addr, err)
+			}
+		}
+	}
+}
+
+func (r *remoteCache) gcCacheGroupPeers() {
+	group := r.config.CacheGroup
+	tick := time.NewTicker(peerGcInterval)
+	for {
+		select {
+		case <-r.stopped:
+			logger.Debug("Stop peer gc")
+			return
+		case <-tick.C:
+			start := time.Now()
+			dels := r.meta.GcCacheGroupPeers(group, r.peers)
+			logger.Infof("GC cache group %s done in %.6fs: %v", group, time.Since(start).Seconds(), dels)
+		}
+	}
+}
+
 func (r *remoteCache) addCacheGroupPeer() error {
-	return r.meta.AddCacheGroupPeer(r.config.CacheGroup, r.localAddr)
+	return r.meta.AddCacheGroupPeer(r.config.CacheGroup, r.localAddr, peerExpireTime)
 }
 
 func (r *remoteCache) getCacheGroupPeers() (bool, error) {

@@ -357,9 +357,13 @@ type Meta interface {
 	// Get all peer addrs in the given cache group
 	GetCacheGroupPeers(cacheGroup string) ([]string, error)
 	// Add addr to the given cache group
-	AddCacheGroupPeer(cacheGroup, addr string) error
+	AddCacheGroupPeer(cacheGroup, addr string, expire time.Duration) error
 	// Remove addr from the given cache group, no-op if addr isn't in the group
 	RemoveCacheGroupPeer(cacheGroup, addr string) error
+	// Refresh expire time of addr
+	RefreshCacheGroupPeer(group, addr string, expire time.Duration) error
+	// GC peers in the given group
+	GcCacheGroupPeers(group string, peers []string) []string
 }
 
 type Creator func(driver, addr string, conf *Config) (Meta, error)
