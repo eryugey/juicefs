@@ -101,6 +101,9 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 	ctx := stream.Context()
 	page := allocPage(bsize)
 	defer freePage(page)
+	if r.upLimit != nil {
+		r.upLimit.Wait(int64(cacheSize))
+	}
 	for uploaded < cacheSize {
 		if err := ctx.Err(); err != nil {
 			msg := fmt.Sprintf("Remote cache server Load %s: context: %v", key, err)
@@ -135,7 +138,6 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 	return nil
 }
 
-// TODO: download limit
 func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 	ctx := stream.Context()
 
@@ -192,6 +194,9 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 	var got int64
 	page := allocPage(int(cacheSize))
 	defer freePage(page)
+	if r.downLimit != nil {
+		r.downLimit.Wait(cacheSize)
+	}
 	for got < cacheSize {
 		if err := ctx.Err(); err != nil {
 			msg := fmt.Sprintf("Remote cache server Cache %s: context: %v", key, err)

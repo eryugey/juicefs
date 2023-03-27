@@ -163,6 +163,7 @@ func clientFlags() []cli.Flag {
 			Name:  "cache-partial-only",
 			Usage: "cache only random/small read",
 		},
+
 		&cli.StringFlag{
 			Name:  "cache-group",
 			Usage: "the name of group to join and provide remote cache (default: no sharing)",
@@ -184,6 +185,17 @@ func clientFlags() []cli.Flag {
 			Name:  "cache-group-backsource",
 			Usage: "remote cache downloads blocks from source on cache miss",
 		},
+		&cli.Int64Flag{
+			Name:  "cache-group-upload-limit",
+			Value: 0,
+			Usage: "cache group bandwidth limit for upload in Mbps",
+		},
+		&cli.Int64Flag{
+			Name:  "cache-group-download-limit",
+			Value: 0,
+			Usage: "cache group bandwidth limit for download in Mbps",
+		},
+
 		&cli.StringFlag{
 			Name:  "backup-meta",
 			Value: "3600",
