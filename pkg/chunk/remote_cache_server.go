@@ -23,6 +23,7 @@ import (
 	"time"
 
 	pb "github.com/juicedata/juicefs/pkg/rpc/remote_cache"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
@@ -43,9 +44,87 @@ func newRemoteCacheServer(srv pb.RemoteCacheServer, opts ...grpc.ServerOption) *
 	return grpcServer
 }
 
-// TODO: upload limit
+func (r *remoteCache) regMetrics(reg prometheus.Registerer) {
+	if reg == nil {
+		return
+	}
+	if r.config.CacheGroupNoShare {
+		return
+	}
+	reg.MustRegister(r.cacheServerHits)
+	reg.MustRegister(r.cacheServerHitBytes)
+	reg.MustRegister(r.cacheServerMiss)
+	reg.MustRegister(r.cacheServerMissBytes)
+	reg.MustRegister(r.cacheServerBacksource)
+	reg.MustRegister(r.cacheServerBacksourceBytes)
+	reg.MustRegister(r.cacheServerCaches)
+	reg.MustRegister(r.cacheServerCacheBytes)
+	reg.MustRegister(r.cacheServerRemoves)
+	reg.MustRegister(r.cacheServerRemoveBytes)
+	reg.MustRegister(r.cacheServerUploadHist)
+	reg.MustRegister(r.cacheServerDownloadHist)
+}
+
+func (r *remoteCache) initMetrics() {
+	if r.config.CacheGroupNoShare {
+		return
+	}
+
+	r.cacheServerHits = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_hits",
+		Help: "load request cache hit count",
+	})
+	r.cacheServerHitBytes = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_hit_bytes",
+		Help: "load request cache hit bytes",
+	})
+	r.cacheServerMiss = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_miss",
+		Help: "load request cache miss count",
+	})
+	r.cacheServerMissBytes = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_miss_bytes",
+		Help: "load request cache miss bytes",
+	})
+	r.cacheServerBacksource = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_backsource",
+		Help: "load request back source count",
+	})
+	r.cacheServerBacksourceBytes = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_backsource_bytes",
+		Help: "load request back source bytes",
+	})
+	r.cacheServerCaches = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_caches",
+		Help: "cache request count",
+	})
+	r.cacheServerCacheBytes = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_cache_bytes",
+		Help: "cache request bytes",
+	})
+	r.cacheServerRemoves = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_removes",
+		Help: "remove request count",
+	})
+	r.cacheServerRemoveBytes = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_remove_bytes",
+		Help: "remove request bytes",
+	})
+	r.cacheServerUploadHist = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "cacheserver_upload_hist_seconds",
+		Help:    "upload cache to peer latency distribution",
+		Buckets: prometheus.ExponentialBuckets(0.00001, 2, 20),
+	})
+	r.cacheServerDownloadHist = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "cacheserver_download_hist_seconds",
+		Help:    "download cache from peer latency distribution",
+		Buckets: prometheus.ExponentialBuckets(0.00001, 2, 20),
+	})
+}
+
 func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer) error {
 	var rd ReadCloser
+	backsource := false
 	key := req.GetKey()
 	cacheSize := parseObjOrigSize(key)
 
@@ -57,8 +136,9 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 
 	rd, err := r.bcache.load(key)
 	if err != nil {
-		// TODO: metrics cache miss
 		if !r.config.CacheGroupBacksource {
+			r.cacheServerMiss.Add(1)
+			r.cacheServerMissBytes.Add(float64(cacheSize))
 			logger.Debugf("Remote cache server Load %s: NotFound", key)
 			return status.Errorf(codes.NotFound, "cache %s not found", key)
 		}
@@ -73,6 +153,9 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 			return status.Errorf(codes.Unknown, msg)
 		}
 		rd = NewPageReader(page)
+		r.cacheServerBacksource.Add(1)
+		r.cacheServerBacksourceBytes.Add(float64(cacheSize))
+		backsource = true
 	}
 	defer rd.Close()
 
@@ -92,7 +175,11 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 		return status.Error(codes.Unknown, msg)
 	}
 
-	// TODO: metrics cache hit
+	if !backsource {
+		r.cacheServerHits.Add(1)
+		r.cacheServerHitBytes.Add(float64(cacheSize))
+	}
+
 	var uploaded int
 	bsize := cacheSize
 	if bsize > bufferSize {
@@ -104,6 +191,7 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 	if r.upLimit != nil {
 		r.upLimit.Wait(int64(cacheSize))
 	}
+	start := time.Now()
 	for uploaded < cacheSize {
 		if err := ctx.Err(); err != nil {
 			msg := fmt.Sprintf("Remote cache server Load %s: context: %v", key, err)
@@ -136,6 +224,7 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 		}
 		uploaded += n
 	}
+	r.cacheServerUploadHist.Observe(time.Since(start).Seconds())
 	return nil
 }
 
@@ -168,7 +257,6 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 	}
 
 	// Check if key is already cached
-	// TODO: metrics
 	rd, err := r.bcache.load(key)
 	if err == nil {
 		_ = rd.Close()
@@ -182,6 +270,8 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 			logger.Warn(msg)
 			return status.Error(codes.Unknown, msg)
 		}
+		r.cacheServerCaches.Add(1)
+		r.cacheServerCacheBytes.Add(float64(cacheSize))
 		return nil
 	}
 
@@ -206,6 +296,7 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 	if r.downLimit != nil {
 		r.downLimit.Wait(cacheSize)
 	}
+	start := time.Now()
 	for got < cacheSize {
 		if err := ctx.Err(); err != nil {
 			msg := fmt.Sprintf("Remote cache server Cache %s: context: %v", key, err)
@@ -240,6 +331,7 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 		}
 		got += int64(size)
 	}
+	r.cacheServerDownloadHist.Observe(time.Since(start).Seconds())
 
 	if got < cacheSize {
 		msg := fmt.Sprintf("Remote cache server Cache %s: not enough data %v < %v", key, got, cacheSize)
@@ -261,5 +353,7 @@ func (r *remoteCache) Remove(_ctx context.Context, req *pb.RemoveRequest) (*empt
 	key := req.GetKey()
 	logger.Debugf("Remote cache server Remove %s", key)
 	r.bcache.remove(key)
+	r.cacheServerRemoves.Add(1)
+	r.cacheServerRemoveBytes.Add(float64(parseObjOrigSize(key)))
 	return new(emptypb.Empty), nil
 }

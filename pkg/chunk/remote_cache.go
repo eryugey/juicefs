@@ -30,6 +30,7 @@ import (
 	pb "github.com/juicedata/juicefs/pkg/rpc/remote_cache"
 	"github.com/juicedata/juicefs/pkg/utils"
 	"github.com/juju/ratelimit"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/resolver"
@@ -76,10 +77,21 @@ type remoteCache struct {
 
 	stopped chan struct{}
 
-	// TODO: prometheus counters here
+	cacheServerHits            prometheus.Counter
+	cacheServerHitBytes        prometheus.Counter
+	cacheServerMiss            prometheus.Counter
+	cacheServerMissBytes       prometheus.Counter
+	cacheServerBacksource      prometheus.Counter
+	cacheServerBacksourceBytes prometheus.Counter
+	cacheServerCaches          prometheus.Counter
+	cacheServerCacheBytes      prometheus.Counter
+	cacheServerRemoves         prometheus.Counter
+	cacheServerRemoveBytes     prometheus.Counter
+	cacheServerUploadHist      prometheus.Histogram
+	cacheServerDownloadHist    prometheus.Histogram
 }
 
-func newRemoteCache(config *Config, meta meta.Meta, store *cachedStore, bcache CacheManager) (RemoteCache, error) {
+func newRemoteCache(config *Config, reg prometheus.Registerer, meta meta.Meta, store *cachedStore, bcache CacheManager) (RemoteCache, error) {
 	rcache := &remoteCache{
 		config:    config,
 		meta:      meta,
@@ -129,6 +141,9 @@ func newRemoteCache(config *Config, meta meta.Meta, store *cachedStore, bcache C
 			_, _ = rcache.getCacheGroupPeers()
 			logger.Infof("Cache group peers %v", rcache.peers)
 		}
+
+		rcache.initMetrics()
+		rcache.regMetrics(reg)
 
 		go rcache.keepAliveCacheGroupPeer()
 		go rcache.gcCacheGroupPeers()
