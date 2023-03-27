@@ -573,10 +573,11 @@ type Config struct {
 	Prefetch       int
 
 	// Remote cache options
-	CacheGroup        string
-	CacheGroupSize    int64
-	FillGroupCache    bool
-	CacheGroupNoShare bool
+	CacheGroup           string
+	CacheGroupSize       int64
+	FillGroupCache       bool
+	CacheGroupNoShare    bool
+	CacheGroupBacksource bool
 }
 
 type cachedStore struct {
@@ -758,7 +759,7 @@ func NewCachedStore(storage object.ObjectStorage, meta meta.Meta, config Config,
 	store.regMetrics(reg)
 
 	if config.CacheGroup != "" {
-		if rcache, err := newRemoteCache(&config, meta, store.bcache); err != nil {
+		if rcache, err := newRemoteCache(&config, meta, store, store.bcache); err != nil {
 			logger.Warnf("Failed to new remote cache, disabled: %s", err)
 			config.CacheGroup = ""
 		} else {

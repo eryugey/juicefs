@@ -45,22 +45,36 @@ func newRemoteCacheServer(srv pb.RemoteCacheServer, opts ...grpc.ServerOption) *
 
 // TODO: upload limit
 func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer) error {
+	var rd ReadCloser
 	key := req.GetKey()
-
-	rd, err := r.bcache.load(key)
-	if err != nil {
-		// TODO: metrics cache miss
-		logger.Debugf("Remote cache server Load %s: NotFound", key)
-		return status.Errorf(codes.NotFound, "cache %s not found", key)
-	}
-	defer rd.Close()
-
 	cacheSize := parseObjOrigSize(key)
+
 	if cacheSize == 0 || cacheSize > r.config.BlockSize {
 		msg := fmt.Sprintf("Remote cache server Load %s: invalid size: %v", key, cacheSize)
 		logger.Warn(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	}
+
+	rd, err := r.bcache.load(key)
+	if err != nil {
+		// TODO: metrics cache miss
+		if !r.config.CacheGroupBacksource {
+			logger.Debugf("Remote cache server Load %s: NotFound", key)
+			return status.Errorf(codes.NotFound, "cache %s not found", key)
+		}
+
+		// Download from source for client
+		logger.Debugf("Remote cache server Load %s: local not found, back sourcing", key)
+		page := NewOffPage(cacheSize)
+		defer page.Release()
+		if err := r.store.load(key, page, true, false); err != nil {
+			msg := fmt.Sprintf("Remote cache server Load %s: store.load: %v", key, err)
+			logger.Warn(msg)
+			return status.Errorf(codes.Unknown, msg)
+		}
+		rd = NewPageReader(page)
+	}
+	defer rd.Close()
 
 	// Inform client cache found and its size
 	logger.Debugf("Remote cache server Load %s: CacheHit", key)

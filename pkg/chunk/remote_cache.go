@@ -62,6 +62,7 @@ type RemoteCache interface {
 type remoteCache struct {
 	config    *Config
 	meta      meta.Meta
+	store     *cachedStore
 	bcache    CacheManager
 	localAddr string
 
@@ -75,10 +76,11 @@ type remoteCache struct {
 	// TODO: prometheus counters here
 }
 
-func newRemoteCache(config *Config, meta meta.Meta, bcache CacheManager) (RemoteCache, error) {
+func newRemoteCache(config *Config, meta meta.Meta, store *cachedStore, bcache CacheManager) (RemoteCache, error) {
 	rcache := &remoteCache{
 		config:    config,
 		meta:      meta,
+		store:     store,
 		bcache:    bcache,
 		observers: map[observer]struct{}{},
 		stopped:   make(chan struct{}),
