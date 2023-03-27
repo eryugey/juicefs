@@ -149,17 +149,21 @@ func (s *rSlice) ReadAt(ctx context.Context, page *Page, off int) (n int, err er
 
 	// Missed local cache, check remote cache
 	if s.store.conf.CacheGroup != "" {
+		start := time.Now()
 		r, err := s.store.rcache.load(key)
 		if err == nil {
 			n, err = r.ReadAt(p, int64(boff))
 			_ = r.Close()
 			if err == nil {
-				// TODO: remote cache metrics cache hit
+				s.store.remoteCacheHits.Add(1)
+				s.store.remoteCacheHitBytes.Add(float64(n))
+				s.store.remoteCacheReadHist.Observe(time.Since(start).Seconds())
 				return n, nil
 			}
 		}
+		s.store.remoteCacheMiss.Add(1)
+		s.store.remoteCacheMissBytes.Add(float64(len(p)))
 	}
-	// TODO: remote cache metrics cache miss
 
 	if s.store.seekable && boff > 0 && len(p) <= blockSize/4 {
 		if s.store.downLimit != nil {
@@ -606,6 +610,12 @@ type cachedStore struct {
 	objectReqsHistogram *prometheus.HistogramVec
 	objectReqErrors     prometheus.Counter
 	objectDataBytes     *prometheus.CounterVec
+
+	remoteCacheHits      prometheus.Counter
+	remoteCacheMiss      prometheus.Counter
+	remoteCacheHitBytes  prometheus.Counter
+	remoteCacheMissBytes prometheus.Counter
+	remoteCacheReadHist  prometheus.Histogram
 }
 
 func (store *cachedStore) load(key string, page *Page, cache bool, forceCache bool) (err error) {
@@ -763,7 +773,7 @@ func NewCachedStore(storage object.ObjectStorage, meta meta.Meta, config Config,
 	store.regMetrics(reg)
 
 	if config.CacheGroup != "" {
-		if rcache, err := newRemoteCache(&config, meta, store, store.bcache); err != nil {
+		if rcache, err := newRemoteCache(&config, reg, meta, store, store.bcache); err != nil {
 			logger.Warnf("Failed to new remote cache, disabled: %s", err)
 			config.CacheGroup = ""
 		} else {
@@ -808,6 +818,30 @@ func (store *cachedStore) initMetrics() {
 		Name: "object_request_data_bytes",
 		Help: "Object requests size in bytes.",
 	}, []string{"method"})
+
+	if store.conf.CacheGroup != "" {
+		store.remoteCacheHits = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "remotecache_hits",
+			Help: "read from remote cached block",
+		})
+		store.remoteCacheMiss = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "remotecache_miss",
+			Help: "missed read from remote cached block",
+		})
+		store.remoteCacheHitBytes = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "remotecache_hit_bytes",
+			Help: "read bytes from remote cached block",
+		})
+		store.remoteCacheMissBytes = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "remotecache_miss_bytes",
+			Help: "missed bytes from remote cached block",
+		})
+		store.remoteCacheReadHist = prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "remotecache_read_hist_seconds",
+			Help:    "read remote cached block latency distribution",
+			Buckets: prometheus.ExponentialBuckets(0.00001, 2, 20),
+		})
+	}
 }
 
 func (store *cachedStore) regMetrics(reg prometheus.Registerer) {
@@ -840,7 +874,14 @@ func (store *cachedStore) regMetrics(reg prometheus.Registerer) {
 			_, used := store.bcache.stats()
 			return float64(used)
 		}))
-	// TODO: remote cache metrics and stats
+
+	if store.conf.CacheGroup != "" {
+		reg.MustRegister(store.remoteCacheHits)
+		reg.MustRegister(store.remoteCacheHitBytes)
+		reg.MustRegister(store.remoteCacheMiss)
+		reg.MustRegister(store.remoteCacheMissBytes)
+		reg.MustRegister(store.remoteCacheReadHist)
+	}
 }
 
 func (store *cachedStore) shouldCache(size int) bool {
