@@ -248,6 +248,30 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 	cacheSize := cacheInfo.GetLen()
 	logger.Debugf("Remote cache server Cache %s", key)
 
+	r.runningCacheLock.Lock()
+	if _, ok := r.runningCache[key]; ok {
+		r.runningCacheLock.Unlock()
+		logger.Debugf("Remote cache server Cache %s: caching in progress", key)
+		res := &pb.CacheResponse{
+			Code:    pb.Code_InProgress,
+			Message: "chunk caching in progress",
+		}
+		if err := stream.Send(res); err != nil {
+			msg := fmt.Sprintf("Remote cache server Cache %s: send: %v", key, err)
+			logger.Warn(msg)
+			return status.Error(codes.Unknown, msg)
+		}
+		return nil
+	} else {
+		r.runningCache[key] = struct{}{}
+		r.runningCacheLock.Unlock()
+		go func() {
+			r.runningCacheLock.Lock()
+			delete(r.runningCache, key)
+			r.runningCacheLock.Unlock()
+		}()
+	}
+
 	// Check if key is already cached
 	rd, err := r.bcache.load(key)
 	if err == nil {
@@ -266,8 +290,6 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 		r.cacheServerCacheBytes.Add(float64(cacheSize))
 		return nil
 	}
-
-	// TODO: avoid concurrent cache
 
 	// Inform client to send data
 	res := &pb.CacheResponse{

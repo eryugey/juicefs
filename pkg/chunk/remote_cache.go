@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/juicedata/juicefs/pkg/meta"
@@ -75,6 +76,9 @@ type remoteCache struct {
 	grpcServer *grpc.Server
 	grpcClient remoteCacheClient
 
+	runningCache     map[string]struct{}
+	runningCacheLock sync.Mutex
+
 	stopped chan struct{}
 
 	cacheServerHits            prometheus.Counter
@@ -93,12 +97,13 @@ type remoteCache struct {
 
 func newRemoteCache(config *Config, reg prometheus.Registerer, meta meta.Meta, store *cachedStore, bcache CacheManager) (RemoteCache, error) {
 	rcache := &remoteCache{
-		config:    config,
-		meta:      meta,
-		store:     store,
-		bcache:    bcache,
-		observers: map[observer]struct{}{},
-		stopped:   make(chan struct{}),
+		config:       config,
+		meta:         meta,
+		store:        store,
+		bcache:       bcache,
+		observers:    map[observer]struct{}{},
+		runningCache: map[string]struct{}{},
+		stopped:      make(chan struct{}),
 	}
 
 	if !config.CacheGroupNoShare {
@@ -310,6 +315,15 @@ func (r *remoteCache) cache(key string, p *Page) error {
 	// Cache already exists in remote server, all done
 	if code == pb.Code_AlreadyExists {
 		logger.Debugf("Cache %s to remote: already exists", key)
+		if err := stream.CloseSend(); err != nil {
+			logger.Warnf("Cache to remote %s: sendClose: %v", key, err)
+		}
+		return nil
+	}
+
+	// Cache in progress in remote server, all done
+	if code == pb.Code_InProgress {
+		logger.Debugf("Cache %s to remote: cache in progress", key)
 		if err := stream.CloseSend(); err != nil {
 			logger.Warnf("Cache to remote %s: sendClose: %v", key, err)
 		}
