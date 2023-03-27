@@ -180,6 +180,10 @@ func clientFlags() []cli.Flag {
 			Name:  "no-sharing",
 			Usage: "do not share cached blocks to others",
 		},
+		&cli.BoolFlag{
+			Name:  "cache-group-backsource",
+			Usage: "remote cache downloads blocks from source on cache miss",
+		},
 		&cli.StringFlag{
 			Name:  "backup-meta",
 			Value: "3600",
