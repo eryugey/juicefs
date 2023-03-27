@@ -573,11 +573,13 @@ type Config struct {
 	Prefetch       int
 
 	// Remote cache options
-	CacheGroup           string
-	CacheGroupSize       int64
-	FillGroupCache       bool
-	CacheGroupNoShare    bool
-	CacheGroupBacksource bool
+	CacheGroup              string
+	CacheGroupSize          int64
+	FillGroupCache          bool
+	CacheGroupNoShare       bool
+	CacheGroupBacksource    bool
+	CacheGroupUploadLimit   int64 // bytes per second
+	CacheGroupDownloadLimit int64 // bytes per second
 }
 
 type cachedStore struct {

@@ -336,11 +336,13 @@ func getChunkConf(c *cli.Context, format *meta.Format) *chunk.Config {
 		CacheFullBlock: !c.Bool("cache-partial-only"),
 		AutoCreate:     true,
 
-		CacheGroup:           c.String("cache-group"),
-		CacheGroupSize:       int64(c.Int("cache-group-size")),
-		FillGroupCache:       c.Bool("fill-group-cache"),
-		CacheGroupNoShare:    c.Bool("no-sharing"),
-		CacheGroupBacksource: c.Bool("cache-group-backsource"),
+		CacheGroup:              c.String("cache-group"),
+		CacheGroupSize:          int64(c.Int("cache-group-size")),
+		FillGroupCache:          c.Bool("fill-group-cache"),
+		CacheGroupNoShare:       c.Bool("no-sharing"),
+		CacheGroupBacksource:    c.Bool("cache-group-backsource"),
+		CacheGroupUploadLimit:   c.Int64("cache-group-upload-limit") * 1e6 / 8,
+		CacheGroupDownloadLimit: c.Int64("cache-group-download-limit") * 1e6 / 8,
 	}
 	if chunkConf.MaxUpload <= 0 {
 		logger.Warnf("max-uploads should be greater than 0, set it to 1")

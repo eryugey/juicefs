@@ -29,6 +29,7 @@ import (
 	"github.com/juicedata/juicefs/pkg/reachable"
 	pb "github.com/juicedata/juicefs/pkg/rpc/remote_cache"
 	"github.com/juicedata/juicefs/pkg/utils"
+	"github.com/juju/ratelimit"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/resolver"
@@ -65,6 +66,8 @@ type remoteCache struct {
 	store     *cachedStore
 	bcache    CacheManager
 	localAddr string
+	upLimit   *ratelimit.Bucket
+	downLimit *ratelimit.Bucket
 
 	peers      []string
 	observers  map[observer]struct{}
@@ -139,13 +142,21 @@ func newRemoteCache(config *Config, meta meta.Meta, store *cachedStore, bcache C
 	}
 	rcache.grpcClient = client
 
+	if config.CacheGroupUploadLimit > 0 {
+		limit := config.CacheGroupUploadLimit
+		rcache.upLimit = ratelimit.NewBucketWithRate(float64(limit), limit)
+	}
+	if config.CacheGroupDownloadLimit > 0 {
+		limit := config.CacheGroupDownloadLimit
+		rcache.downLimit = ratelimit.NewBucketWithRate(float64(limit), limit)
+	}
+
 	// Refresh peer addr list in backgroud
 	go rcache.refreshCacheGroupPeers()
 
 	return rcache, nil
 }
 
-// TODO: download limit
 func (r *remoteCache) load(key string) (rc ReadCloser, rerr error) {
 	logger.Debugf("Loading %s from remote cache", key)
 	req := &pb.LoadRequest{Key: key}
@@ -190,6 +201,9 @@ func (r *remoteCache) load(key string) (rc ReadCloser, rerr error) {
 	page.Data = page.Data[0:cap(page.Data)]
 	defer freePage(page)
 	ctx := stream.Context()
+	if r.downLimit != nil {
+		r.downLimit.Wait(cacheSize)
+	}
 	for got < cacheSize {
 		if err := ctx.Err(); err != nil {
 			msg := fmt.Sprintf("Load from remote %s: context: %v", key, err)
@@ -242,7 +256,6 @@ func (r *remoteCache) load(key string) (rc ReadCloser, rerr error) {
 	return NewPageReader(page), nil
 }
 
-// TODO: upload limit
 func (r *remoteCache) cache(key string, p *Page) error {
 	logger.Debugf("Caching %s to remote cache", key)
 
@@ -294,6 +307,9 @@ func (r *remoteCache) cache(key string, p *Page) error {
 		logger.Warnf("Cache to remote %s: unexpected code %v:%s", key, code, pb.Code_name[int32(code)])
 	}
 
+	if r.upLimit != nil {
+		r.upLimit.Wait(int64(cacheSize))
+	}
 	var uploaded int
 	for uploaded < cacheSize {
 		if err := ctx.Err(); err != nil {
