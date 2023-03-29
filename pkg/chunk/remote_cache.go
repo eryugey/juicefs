@@ -108,18 +108,22 @@ func newRemoteCache(config *Config, reg prometheus.Registerer, meta meta.Meta, s
 
 	if !config.CacheGroupNoShare {
 		// Get host external IPv4 addr
-		ip, err := utils.GetIpv4()
-		if err != nil {
-			return nil, fmt.Errorf("Failed to get IPv4 address: %v", err)
+		ip := config.GroupIp
+		if ip == "" {
+			var err error
+			ip, err = utils.GetIpv4()
+			if err != nil {
+				return nil, fmt.Errorf("Failed to get IPv4 address: %v", err)
+			}
 		}
 
 		// Get listener and random port that could be listened on
 		rpcListener, port, err := utils.ListenWithRandomPort(ip)
+		rcache.localAddr = fmt.Sprintf("%s:%v", ip, port)
 		if err != nil {
-			logger.Errorf("Listen on %v failed: %v", port, err)
+			logger.Errorf("Listen on %s failed: %v", rcache.localAddr, err)
 			return nil, err
 		}
-		rcache.localAddr = fmt.Sprintf("%s:%v", ip, port)
 
 		// First create remote cache server and serve
 		rcache.grpcServer = newRemoteCacheServer(rcache)

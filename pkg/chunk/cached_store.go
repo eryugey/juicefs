@@ -581,6 +581,7 @@ type Config struct {
 	CacheGroupSize          int64
 	FillGroupCache          bool
 	CacheGroupNoShare       bool
+	GroupIp                 string
 	CacheGroupBacksource    bool
 	CacheGroupUploadLimit   int64 // bytes per second
 	CacheGroupDownloadLimit int64 // bytes per second
@@ -772,8 +773,7 @@ func NewCachedStore(storage object.ObjectStorage, meta meta.Meta, config Config,
 
 	if config.CacheGroup != "" {
 		if rcache, err := newRemoteCache(&config, reg, meta, store, store.bcache); err != nil {
-			logger.Warnf("Failed to new remote cache, disabled: %s", err)
-			config.CacheGroup = ""
+			logger.Fatalf("Failed to new remote cache: %s", err)
 		} else {
 			store.rcache = rcache
 		}
