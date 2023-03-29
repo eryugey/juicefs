@@ -337,6 +337,7 @@ func getChunkConf(c *cli.Context, format *meta.Format) *chunk.Config {
 		CacheGroupSize:          int64(c.Int("cache-group-size")),
 		FillGroupCache:          c.Bool("fill-group-cache"),
 		CacheGroupNoShare:       c.Bool("no-sharing"),
+		GroupIp:                 c.String("group-ip"),
 		CacheGroupBacksource:    c.Bool("cache-group-backsource"),
 		CacheGroupUploadLimit:   c.Int64("cache-group-upload-limit") * 1e6 / 8,
 		CacheGroupDownloadLimit: c.Int64("cache-group-download-limit") * 1e6 / 8,
