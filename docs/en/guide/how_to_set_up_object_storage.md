@@ -160,6 +160,7 @@ If you wish to use a storage system that is not listed, feel free to submit a re
 | [MySQL](#mysql)                                             | `mysql`    |
 | [PostgreSQL](#postgresql)                                   | `postgres` |
 | [Local disk](#local-disk)                                   | `file`     |
+| [Dummy](#dummy)                                             | `dummy`     |
 
 ## Amazon S3
 
@@ -1044,3 +1045,13 @@ juicefs format redis://localhost:6379/1 test
 ```
 
 Local storage is usually only used to help users understand how JuiceFS works and to give users an experience on the basic features of JuiceFS. The created JuiceFS storage cannot be mounted by other clients within the network and can only be used on a single machine.
+
+## Dummy {#dummy}
+
+A Dummy object storage implementation, it does nothing, that means it discards all uploaded data, and download always returns error. It's useful for developers to debug/develop non-object storage related functions like local disk cache.
+
+```shell
+juicefs format \
+    --storage dummy \
+    redis://localhost:6379/1 myjfs
+```

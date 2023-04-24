@@ -160,6 +160,7 @@ juicefs format \
 | [MySQL](#mysql)                             | `mysql`    |
 | [PostgreSQL](#postgresql)                   | `postgres` |
 | [本地磁盘](#本地磁盘)                       | `file`     |
+| [Dummy](#dummy)                             | `dummy`     |
 
 ## Amazon S3
 
@@ -1042,3 +1043,13 @@ juicefs format redis://localhost:6379/1 myjfs
 ```
 
 本地存储通常仅用于了解和体验 JuiceFS 的基本功能，创建的 JuiceFS 存储无法被网络内的其他客户端挂载，只能单机使用。
+
+## Dummy {#dummy}
+
+一个 Dummy object storage 后端实现，什么都不做，上传的数据会被丢掉，下载会直接返回错误。仅用作开发测试使用，比如 debug 和后端 object storage 无关的功能时，比如本地缓存等。
+
+```shell
+juicefs format \
+    --storage dummy \
+    redis://localhost:6379/1 myjfs
+```
