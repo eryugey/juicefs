@@ -1936,7 +1936,14 @@ func (m *dbMeta) doDeleteSustainedInode(sid uint64, inode Ino) error {
 	return err
 }
 
-func (m *dbMeta) Read(ctx Context, inode Ino, indx uint32, slices *[]Slice) syscall.Errno {
+func (m *dbMeta) Read(ctx Context, inode Ino, indx uint32, slices *[]Slice) (rerr syscall.Errno) {
+	defer func() {
+		if rerr == 0 {
+			if err := m.touchAtime(ctx, inode); err != 0 {
+				logger.Warnf("read %v update atime: %s", inode, err)
+			}
+		}
+	}()
 	f := m.of.find(inode)
 	if f != nil {
 		f.RLock()
@@ -3218,4 +3225,31 @@ func (m *dbMeta) RefreshCacheGroupPeer(_group, _addr string, _expire time.Durati
 
 func (m *dbMeta) GcCacheGroupPeers(_group string, _peers []string) []string {
 	return nil
+}
+
+func (m *dbMeta) touchAtime(ctx Context, ino Ino) syscall.Errno {
+	if (m.conf.AtimeMode != StrictAtime && m.conf.AtimeMode != RelAtime) || m.conf.ReadOnly {
+		return 0
+	}
+
+	return errno(m.txn(func(s *xorm.Session) error {
+		var cur = node{Inode: ino}
+		var attr = Attr{}
+		ok, err := s.ForUpdate().Get(&cur)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return syscall.ENOENT
+		}
+
+		now := time.Now()
+		m.parseAttr(&cur, &attr)
+		if !m.atimeNeedsUpdate(&attr, now) {
+			return nil
+		}
+		cur.Atime = now.Unix()*1e6 + int64(now.Nanosecond())/1e3
+		_, err = s.Cols("flags", "mode", "uid", "gid", "atime", "mtime", "ctime").Update(&cur, &node{Inode: ino})
+		return err
+	}))
 }

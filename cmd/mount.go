@@ -304,6 +304,12 @@ func getMetaConf(c *cli.Context, mp string, readOnly bool) *meta.Config {
 		logger.Warnf("heartbeat shouldd not be greater than 10 minutes")
 		cfg.Heartbeat = time.Minute * 10
 	}
+	atimeMode := c.String("atime-mode")
+	if atimeMode != meta.RelAtime && atimeMode != meta.StrictAtime {
+		logger.Warnf("unknown atime-mode \"%s\", changed to %s", atimeMode, meta.NoAtime)
+		atimeMode = meta.NoAtime
+	}
+	cfg.AtimeMode = atimeMode
 	return cfg
 }
 

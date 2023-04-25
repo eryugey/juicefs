@@ -332,6 +332,9 @@ delayed duration for uploading objects ("s", "m", "h") (default: 0s)
 `--no-bgjob`<br />
 disable background jobs (clean-up, backup, etc.) (default: false)
 
+`--atime-mode value`<br />
+control atime behavior, support 3 modes, `noatime`, `relatime`, `strictatime`, default to `noatime`
+
 #### Examples
 
 ```bash

@@ -47,6 +47,12 @@ const (
 	fallocZeroRange     = 0x10
 	fallocInsertRange   = 0x20
 )
+const (
+	// atime mode
+	NoAtime     = "noatime"
+	RelAtime    = "relatime"
+	StrictAtime = "strictatime"
+)
 
 type msgCallbacks struct {
 	sync.Mutex
@@ -363,4 +369,35 @@ func GetSummary(r Meta, ctx Context, inode Ino, summary *Summary, recursive bool
 		summary.Size += uint64(align4K(attr.Length))
 	}
 	return 0
+}
+
+func (m *baseMeta) atimeNeedsUpdate(attr *Attr, now time.Time) bool {
+	if m.conf.AtimeMode == RelAtime && relatimeNeedUpdate(attr, now) {
+		return true
+	}
+
+	return m.conf.AtimeMode == StrictAtime && !now.Equal(time.Unix(attr.Atime, int64(attr.Atimensec)))
+}
+
+// With relative atime, only update atime if the previous atime is earlier than either the ctime or
+// mtime or if at least a day has passed since the last atime update.
+func relatimeNeedUpdate(attr *Attr, now time.Time) bool {
+	atime := time.Unix(attr.Atime, int64(attr.Atimensec))
+
+	// Is mtime younger than atime? If yes, update atime
+	if time.Unix(attr.Mtime, int64(attr.Mtimensec)).After(atime) {
+		return true
+	}
+
+	// Is ctime younger than atime? If yes, update atime
+	if time.Unix(attr.Ctime, int64(attr.Ctimensec)).After(atime) {
+		return true
+	}
+
+	// Is the previous atime value older than a day? If yes, update atime
+	if now.Sub(atime) > 24*time.Hour {
+		return true
+	}
+
+	return false
 }
