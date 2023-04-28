@@ -125,7 +125,13 @@ func (r *remoteCache) initMetrics() {
 func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer) error {
 	var rd ReadCloser
 	backsource := false
-	key := req.GetKey()
+	rkey := req.GetKey()
+	key, replica, err := parseRemoteCacheKey(rkey)
+	if err != nil {
+		msg := fmt.Sprintf("Remote cache server Load %s: invalid remote cache key: %v", rkey, err)
+		logger.Warn(msg)
+		return status.Error(codes.InvalidArgument, msg)
+	}
 	cacheSize := parseObjOrigSize(key)
 
 	if cacheSize == 0 || cacheSize > r.config.BlockSize {
@@ -134,7 +140,8 @@ func (r *remoteCache) Load(req *pb.LoadRequest, stream pb.RemoteCache_LoadServer
 		return status.Error(codes.InvalidArgument, msg)
 	}
 
-	rd, err := r.bcache.load(key)
+	logger.Debugf("Remote cache server Load %s, replica %d", key, replica)
+	rd, err = r.bcache.load(key)
 	if err != nil {
 		if !r.config.CacheGroupBacksource {
 			r.cacheServerMiss.Add(1)
@@ -245,9 +252,15 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 		logger.Warn(msg)
 		return status.Error(codes.InvalidArgument, msg)
 	}
-	key := cacheInfo.GetKey()
+	rkey := cacheInfo.GetKey()
+	key, replica, err := parseRemoteCacheKey(rkey)
+	if err != nil {
+		msg := fmt.Sprintf("Remote cache server Cache %s: invalid remote cache key: %v", rkey, err)
+		logger.Warn(msg)
+		return status.Error(codes.InvalidArgument, msg)
+	}
 	cacheSize := cacheInfo.GetLen()
-	logger.Debugf("Remote cache server Cache %s, size %v", key, cacheSize)
+	logger.Debugf("Remote cache server Cache %s, replica %d, size %v", key, replica, cacheSize)
 
 	size := parseObjOrigSize(key)
 	if int64(size) != cacheSize {
@@ -372,8 +385,14 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 }
 
 func (r *remoteCache) Remove(_ctx context.Context, req *pb.RemoveRequest) (*emptypb.Empty, error) {
-	key := req.GetKey()
-	logger.Debugf("Remote cache server Remove %s", key)
+	rkey := req.GetKey()
+	key, replica, err := parseRemoteCacheKey(rkey)
+	if err != nil {
+		msg := fmt.Sprintf("Remote cache server Remove %s: invalid remote cache key: %v", rkey, err)
+		logger.Warn(msg)
+		return new(emptypb.Empty), status.Error(codes.InvalidArgument, msg)
+	}
+	logger.Debugf("Remote cache server Remove %s, replica %d", key, replica)
 	r.bcache.remove(key)
 	r.cacheServerRemoves.Add(1)
 	r.cacheServerRemoveBytes.Add(float64(parseObjOrigSize(key)))

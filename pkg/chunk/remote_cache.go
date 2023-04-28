@@ -23,6 +23,8 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,6 +98,10 @@ type remoteCache struct {
 }
 
 func newRemoteCache(config *Config, reg prometheus.Registerer, meta meta.Meta, store *cachedStore, bcache CacheManager) (RemoteCache, error) {
+	if config.CacheGroupMaxReplica < 1 {
+		panic("invalid cache group replica number")
+	}
+
 	rcache := &remoteCache{
 		config:       config,
 		meta:         meta,
@@ -181,7 +187,44 @@ func newRemoteCache(config *Config, reg prometheus.Registerer, meta meta.Meta, s
 	return rcache, nil
 }
 
+// Generate a key for remote cache based on the given chunk key and replica number
+// The remote cache key has the following format:
+//
+// number:chunk_key
+//
+// The remote cache replica works in best-effert manner, as different keys may be hashed to the same
+// node, so a cache would be saved at most the configured replica copies.
+func genRemoteCacheKey(key string, n int) string {
+	return fmt.Sprintf("%d:%s", n, key)
+}
+
+// Parse remote cache key into chunk key and replica number
+func parseRemoteCacheKey(rkey string) (string, int, error) {
+	n, key, found := strings.Cut(rkey, ":")
+	if !found {
+		return "", -1, errors.New("\":\" not found in remote key")
+	}
+
+	replica, err := strconv.Atoi(n)
+	if err != nil {
+		return "", -1, fmt.Errorf("convert replica failed: %s", err)
+	}
+
+	return key, replica, nil
+}
+
 func (r *remoteCache) load(key string) (rc ReadCloser, rerr error) {
+	for replica := 1; replica <= r.config.CacheGroupMaxReplica; replica++ {
+		rkey := genRemoteCacheKey(key, replica)
+		rc, rerr = r.doLoad(rkey)
+		if rerr == nil {
+			return
+		}
+	}
+	return
+}
+
+func (r *remoteCache) doLoad(key string) (rc ReadCloser, rerr error) {
 	logger.Debugf("Loading %s from remote cache", key)
 	req := &pb.LoadRequest{Key: key}
 	stream, err := r.grpcClient.load(context.Background(), req)
@@ -280,7 +323,16 @@ func (r *remoteCache) load(key string) (rc ReadCloser, rerr error) {
 	return NewPageReader(page), nil
 }
 
-func (r *remoteCache) cache(key string, p *Page) error {
+func (r *remoteCache) cache(key string, p *Page) (err error) {
+	for replica := 1; replica <= r.config.CacheGroupMaxReplica; replica++ {
+		rkey := genRemoteCacheKey(key, replica)
+		// return the last error
+		err = r.doCache(rkey, p)
+	}
+	return
+}
+
+func (r *remoteCache) doCache(key string, p *Page) error {
 	logger.Debugf("Caching %s to remote cache", key)
 
 	stream, err := r.grpcClient.cache(context.Background(), key)
@@ -374,6 +426,14 @@ func (r *remoteCache) cache(key string, p *Page) error {
 }
 
 func (r *remoteCache) remove(key string) {
+	for replica := 1; replica <= r.config.CacheGroupMaxReplica; replica++ {
+		rkey := genRemoteCacheKey(key, replica)
+		r.doRemove(rkey)
+	}
+	return
+}
+
+func (r *remoteCache) doRemove(key string) {
 	logger.Debugf("Removing %s from remote cache", key)
 	req := &pb.RemoveRequest{Key: key}
 	err := r.grpcClient.remove(context.Background(), req)
@@ -401,7 +461,7 @@ func (r *remoteCache) refreshCacheGroupPeers() {
 				logger.Infof("peers of cache group %s changed: %v", group, r.peers)
 				r.notify()
 			} else {
-				logger.Debugf("peers of cache group %s not changed", group)
+				logger.Tracef("peers of cache group %s not changed", group)
 			}
 		}
 	}

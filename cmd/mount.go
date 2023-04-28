@@ -350,6 +350,7 @@ func getChunkConf(c *cli.Context, format *meta.Format) *chunk.Config {
 		CacheGroupBacksource:    c.Bool("cache-group-backsource"),
 		CacheGroupUploadLimit:   c.Int64("cache-group-upload-limit") * 1e6 / 8,
 		CacheGroupDownloadLimit: c.Int64("cache-group-download-limit") * 1e6 / 8,
+		CacheGroupMaxReplica:    c.Int("cache-group-max-replica"),
 	}
 	if chunkConf.MaxUpload <= 0 {
 		logger.Warnf("max-uploads should be greater than 0, set it to 1")
@@ -380,6 +381,13 @@ func getChunkConf(c *cli.Context, format *meta.Format) *chunk.Config {
 	if chunkConf.CacheGroup != "" && chunkConf.Writeback && chunkConf.FillGroupCache {
 		chunkConf.FillGroupCache = false
 		logger.Warnf("fill-group-cache conflicts with writeback, disabled")
+	}
+	if chunkConf.CacheGroupMaxReplica > 10 {
+		logger.Warnf("cache-group-max-replica %v > 10, do you really need so many copies?", chunkConf.CacheGroupMaxReplica)
+	}
+	if chunkConf.CacheGroupMaxReplica <= 0 {
+		logger.Warnf("cache-group-max-replica %v must be >= 1, reset to 1", chunkConf.CacheGroupMaxReplica)
+		chunkConf.CacheGroupMaxReplica = 1
 	}
 	return chunkConf
 }

@@ -585,6 +585,7 @@ type Config struct {
 	CacheGroupBacksource    bool
 	CacheGroupUploadLimit   int64 // bytes per second
 	CacheGroupDownloadLimit int64 // bytes per second
+	CacheGroupMaxReplica    int   // max replicas remote cache saved
 }
 
 type cachedStore struct {

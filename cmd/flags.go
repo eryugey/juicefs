@@ -199,6 +199,11 @@ func clientFlags() []cli.Flag {
 			Value: 0,
 			Usage: "cache group bandwidth limit for download in Mbps",
 		},
+		&cli.IntFlag{
+			Name:  "cache-group-max-replica",
+			Value: 1,
+			Usage: "number of max replica a cache will be saved in cache group",
+		},
 
 		&cli.StringFlag{
 			Name:  "backup-meta",
