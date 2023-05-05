@@ -57,6 +57,8 @@ func (r *remoteCache) regMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(r.cacheServerMissBytes)
 	reg.MustRegister(r.cacheServerBacksource)
 	reg.MustRegister(r.cacheServerBacksourceBytes)
+	reg.MustRegister(r.cacheServerPutsource)
+	reg.MustRegister(r.cacheServerPutsourceBytes)
 	reg.MustRegister(r.cacheServerCaches)
 	reg.MustRegister(r.cacheServerCacheBytes)
 	reg.MustRegister(r.cacheServerRemoves)
@@ -93,6 +95,14 @@ func (r *remoteCache) initMetrics() {
 	r.cacheServerBacksourceBytes = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cacheserver_backsource_bytes",
 		Help: "load request back source bytes",
+	})
+	r.cacheServerPutsource = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_putsource",
+		Help: "cache request put source count",
+	})
+	r.cacheServerPutsourceBytes = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cacheserver_putsource_bytes",
+		Help: "cache request put source bytes",
 	})
 	r.cacheServerCaches = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cacheserver_caches",
@@ -374,6 +384,30 @@ func (r *remoteCache) Cache(stream pb.RemoteCache_CacheServer) error {
 		return status.Error(codes.DataLoss, msg)
 	}
 
+	if r.config.CacheGroupPutsource {
+		var err error
+		try, max := 0, 3
+		for ; try < max; try++ {
+			time.Sleep(time.Second * time.Duration(try*try))
+			if err := ctx.Err(); err != nil {
+				msg := fmt.Sprintf("Remote cache server Cache %s: upload block (after %d tries) context: %v", key, err)
+				logger.Warn(msg)
+				return status.Error(codes.Unknown, msg)
+			}
+			if err = r.store.put(key, page); err == nil {
+				r.cacheServerPutsource.Add(1)
+				r.cacheServerPutsourceBytes.Add(float64(cacheSize))
+				break
+			}
+			logger.Warnf("Remote Cache server Cache %s: Upload: %s (try %d)", key, err, try+1)
+		}
+		if err != nil && try >= max {
+			msg := fmt.Sprintf("Remote Cache server Cache %s: (max tries) upload block: %s (after %d tries)", key, err, try)
+			logger.Error(msg)
+			return status.Error(codes.Unknown, msg)
+		}
+	}
+
 	// Cache it to local disk store in background
 	page.Acquire()
 	go func() {
@@ -396,5 +430,8 @@ func (r *remoteCache) Remove(_ctx context.Context, req *pb.RemoveRequest) (*empt
 	r.bcache.remove(key)
 	r.cacheServerRemoves.Add(1)
 	r.cacheServerRemoveBytes.Add(float64(parseObjOrigSize(key)))
+	if r.config.CacheGroupPutsource {
+		r.store.doDelete(key)
+	}
 	return new(emptypb.Empty), nil
 }

@@ -89,6 +89,8 @@ type remoteCache struct {
 	cacheServerMissBytes       prometheus.Counter
 	cacheServerBacksource      prometheus.Counter
 	cacheServerBacksourceBytes prometheus.Counter
+	cacheServerPutsource       prometheus.Counter
+	cacheServerPutsourceBytes  prometheus.Counter
 	cacheServerCaches          prometheus.Counter
 	cacheServerCacheBytes      prometheus.Counter
 	cacheServerRemoves         prometheus.Counter

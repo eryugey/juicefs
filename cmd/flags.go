@@ -189,6 +189,10 @@ func clientFlags() []cli.Flag {
 			Name:  "cache-group-backsource",
 			Usage: "remote cache downloads blocks from source on cache miss",
 		},
+		&cli.BoolFlag{
+			Name:  "cache-group-putsource",
+			Usage: "remote cache uploads blocks to source on cache request",
+		},
 		&cli.Int64Flag{
 			Name:  "cache-group-upload-limit",
 			Value: 0,

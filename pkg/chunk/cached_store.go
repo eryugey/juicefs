@@ -219,23 +219,7 @@ func (s *rSlice) ReadAt(ctx context.Context, page *Page, off int) (n int, err er
 
 func (s *rSlice) delete(indx int) error {
 	key := s.key(indx)
-	st := time.Now()
-	err := s.store.storage.Delete(key)
-	used := time.Since(st)
-	if err != nil && (strings.Contains(err.Error(), "NoSuchKey") ||
-		strings.Contains(err.Error(), "not found") ||
-		strings.Contains(err.Error(), "No such file")) {
-		err = nil
-	}
-	logger.Debugf("DELETE %v (%v, %.3fs)", key, err, used.Seconds())
-	if used > SlowRequest {
-		logger.Infof("slow request: DELETE %v (%v, %.3fs)", key, err, used.Seconds())
-	}
-	s.store.objectReqsHistogram.WithLabelValues("DELETE").Observe(used.Seconds())
-	if err != nil {
-		s.store.objectReqErrors.Add(1)
-	}
-	return err
+	return s.store.doDelete(key)
 }
 
 func (s *rSlice) Remove() error {
@@ -583,6 +567,7 @@ type Config struct {
 	CacheGroupNoShare       bool
 	GroupIp                 string
 	CacheGroupBacksource    bool
+	CacheGroupPutsource     bool
 	CacheGroupUploadLimit   int64 // bytes per second
 	CacheGroupDownloadLimit int64 // bytes per second
 	CacheGroupMaxReplica    int   // max replicas remote cache saved
@@ -989,6 +974,26 @@ func (store *cachedStore) uploader() {
 	for it := range store.pendingCh {
 		store.uploadStagingFile(it.key, it.fpath)
 	}
+}
+
+func (store *cachedStore) doDelete(key string) error {
+	st := time.Now()
+	err := store.storage.Delete(key)
+	used := time.Since(st)
+	if err != nil && (strings.Contains(err.Error(), "NoSuchKey") ||
+		strings.Contains(err.Error(), "not found") ||
+		strings.Contains(err.Error(), "No such file")) {
+		err = nil
+	}
+	logger.Debugf("DELETE %v (%v, %.3fs)", key, err, used.Seconds())
+	if used > SlowRequest {
+		logger.Infof("slow request: DELETE %v (%v, %.3fs)", key, err, used.Seconds())
+	}
+	store.objectReqsHistogram.WithLabelValues("DELETE").Observe(used.Seconds())
+	if err != nil {
+		store.objectReqErrors.Add(1)
+	}
+	return err
 }
 
 func (store *cachedStore) NewReader(id uint64, length int) Reader {
